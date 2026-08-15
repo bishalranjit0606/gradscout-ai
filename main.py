@@ -72,6 +72,9 @@ engineering. List 3-6 real module names from the official page.
 HARD EXCLUDE COURSES
 - Generic MSc Computer Science / Informatics / Software Engineering with
   only an optional "AI track" or one ML elective.
+  Exception: TU Graz MSc Computer Science is allowed if the applicant
+  takes the Machine Learning or Intelligent Systems major with generative
+  / LLM / NLP modules.
 - Traditional AI/ML: classical ML, statistics, data mining, "Image
   Processing & AI", generic Applied Informatics.
 - Coding-only degrees: DSA, algorithms, compilers, pure software
@@ -135,19 +138,37 @@ Judge the CITY as a Nepali student would live it, not the country's marketing.
 - If search shows mixed/bad ground reports on safety or jobs, skip or be
   blunt in downsides. Do not polish a risky city to sound nice.
 
+PRIORITY (search and rank in this order)
+1. FIRST, these exact universities/courses (maximum focus). Watch their
+   official apply pages every run. Email if a matching intake opens today:
+   - FH JOANNEUM, Graz: Machine Learning and Generative AI
+     https://www.fh-joanneum.at/machine-learning-and-generative-ai/master/en/
+   - TU Graz: MSc Computer Science, Machine Learning or Intelligent Systems
+     major (Generative Deep Learning / NLP). This CS wrapper is ALLOWED
+     only with that AI major, because the applicant chose Graz.
+     https://www.tugraz.at/en/studying-and-teaching/degree-and-certificate-programmes/masters-degree-programmes/computer-science
+     Apply window for 2027/28: 15 October to 15 December 2026.
+   - JKU Linz: MSc Artificial Intelligence (LLMs / generative methods)
+     https://www.jku.at/en/degree-programs/types-of-degree-programs/masters-degree-programs/ma-artificial-intelligence
+     Non-EU winter intake: typically 6 February to 31 March.
+2. SECOND, other Austria GenAI / LLM / AI-engineering Master's in calm
+   cities: Graz, Linz, Innsbruck, Klagenfurt. Skip Vienna (too crowded)
+   unless nothing else opened and it still matches every other filter.
+   Prefer four-season climate (not extreme Nordic cold). English-taught
+   is OK; note that jobs and PR in Austria need German.
+3. THIRD, only if nothing in (1) or (2) opened today: other EU countries
+   that still pass every filter (GenAI course, open today, safe, rent,
+   part-time work, not overcrowded). Same exclude list still applies.
+
+Do not pad. If the priority universities did not open today, returning
+zero programs is correct. Do not fill the email with random EU schools.
+
 PREFER THESE KINDS OF PLACES
-- Peaceful mid-size or smaller student cities. Easier dorms / rooms.
-- Real part-time work and legal student work hours for non-EU students.
-- Regions: Poland (Wroclaw, Poznan, Gdansk, Lublin, Katowice), Czechia
-  (Brno, Ostrava), Hungary (Debrecen, Pecs; Szeged only if apply is open
-  AND the course is GenAI not generic CS), Slovakia, Lithuania, Latvia,
-  Estonia (Tartu, Kaunas), Portugal (Coimbra, Braga, Aveiro, Porto),
-  Spain (Granada, Salamanca, Zaragoza), Italy (Padova, Trento, Pisa),
-  Slovenia, Croatia, Finland (Tampere, Oulu, Turku, Jyvaskyla),
-  Sweden (Linkoping, Umea, Lulea, Vaxjo, Karlskrona), Austria (Graz, Linz,
-  Innsbruck), France (Toulouse, Grenoble, Nantes, Lille), Ireland (Galway,
-  Limerick, Cork), Taiwan, Malaysia, Japan regional cities if visa is realistic.
-- Average regional universities are the TARGET.
+- Peaceful mid-size student cities near nature. Graz-style living is the
+  dream: safe, not too hot, not Arctic-cold, house later in suburbs.
+- After Austria, same style in EU: Braga/Coimbra (Portugal), Ljubljana,
+  Brno, Padova/Trento, smaller France (Toulouse, Grenoble, Nantes).
+- Average / applied universities (FH) are welcome. Elite branding is not.
 
 ADMISSION REALITY FILTER
 - 3-year South Asian / Nepali bachelor's accepted, or a real pre-master.
@@ -170,13 +191,14 @@ SEARCH RULES
 - Ignore previously-seen program IDs.
 - If a fact is unsure, write "unverified" or skip the program.
 - Never invent deadlines, rent, or URLs.
-- Rank by: (1) application actually opened today, (2) GenAI/agent/AI-engineer
-  curriculum, (3) working official URL, (4) real safety, (5) real rent +
-  part-time + post-grad income, (6) visa practicality.
+- Rank by: (1) application actually opened today, (2) priority list
+  (FH JOANNEUM Graz, then TU Graz, then JKU Linz, then other Austria,
+  then other EU), (3) GenAI/agent/AI-engineer curriculum, (4) working
+  official URL, (5) real safety / rent / jobs, (6) visa practicality.
 
 PROGRAM ID FORMAT
 - lowercase: country|university-slug|program-slug|intake-term-year
-  Example: "pl|pwr-wroclaw|msc-generative-ai|october-2027"
+  Example: "at|fh-joanneum-graz|ml-generative-ai|winter-2027"
 - course identity is the first three parts (university + course). The last
   part is the intake. Same course + same intake must never be emailed twice.
   Same course is allowed again only for a later intake.
@@ -187,7 +209,7 @@ Return ONLY valid JSON (no markdown fences, no commentary):
   "new_opportunities_found": boolean,
   "discovered_programs": [
     {
-      "id": "pl|pwr-wroclaw|msc-generative-ai|october-2027",
+      "id": "at|fh-joanneum-graz|ml-generative-ai|winter-2027",
       "application_opened_on": "YYYY-MM-DD"
     }
   ],
@@ -360,8 +382,14 @@ def build_user_prompt(seen_records: list[dict[str, str]]) -> str:
         "ZERO programs. Only include a course if its official application "
         "window opened TODAY (or yesterday, timezone catch-up) AND it matches "
         "every requirement. Do not pad 3-4 universities. No limit: 0 to many.\n\n"
+        "Check FIRST: FH JOANNEUM Graz (Machine Learning and Generative AI), "
+        "TU Graz Computer Science (ML / Intelligent Systems major), and "
+        "JKU Linz MSc Artificial Intelligence. SECOND: other Austria in Graz, "
+        "Linz, Innsbruck, Klagenfurt (skip Vienna). THIRD: other EU only if "
+        "nothing in Austria opened today. Do not pad with random universities.\n\n"
         "Find Master's programs focused on Generative AI, LLMs, AI agents, or "
-        "AI engineering (not generic CS, not classical ML, not coding-only). "
+        "AI engineering (not generic CS, not classical ML, not coding-only, "
+        "except the TU Graz CS+ML major above). "
         "Every Official Link must be a full https URL that search shows as a "
         "live university page. Peaceful smaller cities that are actually safe "
         "to live in, not only safe on paper. Use ground-reality rent, tuition, "
