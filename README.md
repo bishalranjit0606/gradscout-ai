@@ -1,13 +1,15 @@
 # Daily GenAI Master's Research & Email Automation Agent
 
-GradScout is a daily research agent. It searches the live web with Gemini 2.5 Flash (Google Search grounding), finds new Master's programs in Generative AI, LLMs, and Agentic AI, and emails an HTML briefing when something new appears.
+GradScout is a daily research agent. It searches the live web with Gemini (Google Search grounding), finds Master's programs in Generative AI, LLMs, and Agentic AI in cities you can actually settle in, and emails an HTML briefing when a new apply-now option appears.
 
-The target profile is a **Nepali applicant with a BCA (GPA 3.29)**. Traditional ML, statistics, and generic data-science degrees are ignored unless the program is clearly GenAI / LLM / agentic.
+The target profile is a **Nepali applicant with a BCA (GPA 3.29)** who wants a long-term IT/AI job in the same city after graduating. Traditional ML, statistics, and generic data-science degrees are ignored unless the program is clearly GenAI / LLM / agentic.
+
+A city is judged like Kathmandu vs Pokhara: many local IT companies and a manageable population beat a pretty campus town or a mega-city crush. "Google or IBM has an office here" is not a reason to recommend. Scholarship or low fee is preferred; a decent self-paid fee is allowed only if the city is settle-ready.
 
 ## What it does
 
 1. Runs every day, but most days sends **no email**.
-2. Emails only if a matching GenAI / AI-agent course **opened applications today**.
+2. Emails only if a matching GenAI / AI-agent course is **open to apply now** (or opens within 14 days) and the city passes the settle test.
 3. No daily quota of 3-4 universities. Count can be 0, 1, or many.
 4. The same university + course is emailed once per intake. It can be sent again only for the next intake.
 
@@ -59,7 +61,7 @@ python main.py
 
 Expected logs:
 
-- `No new Master's opportunities found...` if Gemini finds nothing new.
+- `No new settle-ready courses are open...` if Gemini finds nothing new.
 - `HTML email sent...` if new programs were found.
 
 ## GitHub Actions (daily at 06:00 UTC)

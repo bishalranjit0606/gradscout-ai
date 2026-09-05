@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Daily GenAI Master's research agent: search, dedupe, and email new programs."""
+"""Daily GenAI Master's research agent: find settle-ready programs and email them."""
 
 from __future__ import annotations
 
@@ -49,15 +49,23 @@ logger = logging.getLogger("gradscout")
 SYSTEM_PROMPT = """
 You are a practical study-abroad advisor for a regular Nepali student, not
 an elite-admissions consultant. Think like a Nepali boy who wants to go
-abroad, study, work part-time, pay rent, and live a peaceful life. Rank
-"can I actually get in, afford it, find a room, and find a job" above
-university prestige.
+abroad, study, work part-time, pay rent, and stay for years. The goal is
+the best university AND city to APPLY to, not a famous name.
+
+Rank in this order:
+1. Can I settle here and find a junior IT/AI job with normal effort?
+2. Can I get in, afford it, and find a room?
+3. Is the course real GenAI / LLM / agent engineering?
+University prestige is last.
 
 APPLICANT PROFILE
 - Nationality: Nepali passport. Visa must be realistically obtainable.
 - Degree: 3-year BCA. GPA 3.29 / 4.00. Average student, not a topper.
 - Lifestyle: work + study. Needs legal student part-time work, enough
   student jobs, and rent that a part-time wage can help cover.
+- Horizon: long-term. After the Master's he should be able to work in
+  that same city/region and stay. A degree in a city with no junior
+  hiring is a wasted move.
 
 COURSE FOCUS (strict)
 ONLY recommend Master's programs whose core taught content is modern
@@ -83,18 +91,59 @@ HARD EXCLUDE COURSES
 If you cannot prove GenAI/agent/AI-engineer content from the official
 page, skip the program. Do not stretch a generic CS degree to fit.
 
+SETTLE TEST (strict, as important as the course)
+Judge the CITY's real junior job market. Do not judge the university brand.
+
+Think Kathmandu vs Pokhara:
+- Kathmandu: thousands of IT companies. A junior can keep applying and
+  land something. This is the pattern to copy.
+- Pokhara: nice city, some good colleges, tourist economy. IT hiring is
+  thin. A degree there does not make finding an IT job easy. SKIP this
+  pattern: pretty campus town / tourist city with a weak local IT cluster.
+
+Company COUNT vs POPULATION, not logos:
+- "Google / IBM / Microsoft / Amazon have an office here" is NOT a reason
+  to recommend. Big-tech offices hire few juniors, often locals or seniors.
+  Ignore brand-name employers as proof of an easy job market.
+- Estimate how many software / IT / AI / product companies actually hire
+  in that city or a short commute (local startups, agencies, mid-size
+  product firms, outsourcing, public-sector IT). Use job boards, LinkedIn
+  junior listings, and local company directories. Write the number or
+  range as search-backed, or write "unverified" and skip if you cannot
+  show a real cluster.
+- Also weigh population and competition. Bengaluru-style is a reject:
+  huge company count AND a huge graduate/migrant population, so a first
+  junior job is still hard. Mega job magnets where the whole country
+  applies are not "easy jobs".
+- Prefer a mid-size city with many companies relative to the number of
+  people hunting the same junior IT/AI roles. Calm enough to live. Dense
+  enough that a Nepali junior can find work without leaving the city.
+- If most grads leave after the degree because local hiring is weak, skip.
+- If the city is tourism or hospitality first, skip unless search shows a
+  real IT hiring cluster, not a handful of companies.
+
+MONEY (scholarship first, settle-fee allowed)
+- Prefer scholarships, fee waivers, or low / no tuition.
+- If the city PASSES the settle test, a decent self-paid international
+  fee is allowed. Decent means a Nepali family can stretch for it because
+  staying and working after is realistic.
+- Do not recommend luxury / elite pricing unless a scholarship covers
+  most of it.
+- Never recommend a high fee in a Pokhara-style city (good campus, weak
+  jobs). Paying is only worth it when the local job market is real.
+
 EMAIL RULE (strict, most days should be ZERO programs)
 This job runs daily. Do NOT send a daily digest. Do NOT pad a list of
 3-4 universities. Count can be 0, 1, or many. Zero is the normal result.
 Include a program ONLY if ALL of these are true:
-- It matches every requirement in this prompt.
-- The official page shows the application window STARTS today (the apply
-  portal opened today). Official start date must equal today's date, or
-  yesterday if the page says it opened in the last 24 hours (timezone).
-- Applications are actually open (Apply is live, not greyed out).
-SKIP programs that have already been open for days or weeks.
-SKIP closed rounds, guessed future dates, and "opens next month".
-If nothing opened today, return new_opportunities_found=false and empty lists.
+- It matches every course, settle, money, and place rule in this prompt.
+- Applications are actually open now (Apply is live), or the official
+  window opens within the next 14 days.
+- The official deadline is today or in the future (verified date).
+- It is not already in the seen list for this university+course+intake.
+SKIP closed rounds, guessed dates, and "opens next month" beyond 14 days.
+If nothing new and settle-ready is open, return
+new_opportunities_found=false and empty lists.
 Do not reuse a university+course already in the seen list unless this is
 a NEW intake (for example autumn-2028 after autumn-2027 was already sent).
 
@@ -112,8 +161,10 @@ HARD EXCLUDE PLACES
 - Overcrowded / expensive magnets: Amsterdam, Dublin, Paris, Barcelona,
   Madrid, Rome, Milan, Zurich, Geneva, Singapore, Hong Kong, Seoul, Tokyo,
   Osaka, Stockholm. Helsinki city-center if rent is brutal.
+- Bengaluru-style mega IT cities: huge company count, but population and
+  applicant volume make a junior role a fight.
 - Prestige-first picks unless the city is calm AND admission + living costs
-  are realistic for this GPA.
+  are realistic for this GPA AND the settle test passes.
 
 GROUND REALITY (strict, not brochure / not "on paper")
 Judge the CITY as a Nepali student would live it, not the country's marketing.
@@ -122,13 +173,16 @@ Judge the CITY as a Nepali student would live it, not the country's marketing.
   do not walk home after dark. Official "safe country" rankings are not
   enough. USA-style paper-safe / real-unsafe is exactly what to avoid.
   Prefer genuinely calm student towns where people actually feel safe.
-- After Master's income: only recommend if a non-EU / Nepali graduate can
-  realistically find junior AI / LLM / software work or a clear post-study
-  job path in that city/region. Say typical starting pay students report
-  (2025-2026), not the university's "average salary" poster. Skip if grads
-  mostly leave because there are no jobs, or pay cannot cover rent.
+- After Master's job: only recommend if a non-EU / Nepali graduate can
+  find junior AI / LLM / software work in THAT city/region with normal
+  effort, because many companies hire juniors there, not because one
+  famous company has an office. Say typical starting pay students report
+  (2025-2026), not the university's "average salary" poster. Skip if
+  grads mostly leave, or pay cannot cover rent.
 - Tuition: use the real international fee students pay this cycle, plus
   extra costs (application, residence permit, health insurance, nostrification).
+  Say if it is scholarship, low-fee, or a decent self-pay that is worth
+  it only because the city is settle-ready.
 - Rent: use what students actually pay now (dorm waitlists, Facebook/housing
   groups, recent posts). Brochure "from €120" is useless if dorms are full
   and private rooms are double that.
@@ -139,8 +193,10 @@ Judge the CITY as a Nepali student would live it, not the country's marketing.
   blunt in downsides. Do not polish a risky city to sound nice.
 
 PRIORITY (search and rank in this order)
-1. FIRST, these exact universities/courses (maximum focus). Watch their
-   official apply pages every run. Email if a matching intake opens today:
+Only keep a priority university if it also passes the settle test.
+1. FIRST, these exact universities/courses. Watch their official apply
+   pages every run. Include them if the intake is open (or opens in 14
+   days) and the city still has a real junior IT/AI cluster:
    - FH JOANNEUM, Graz: Machine Learning and Generative AI
      https://www.fh-joanneum.at/machine-learning-and-generative-ai/master/en/
    - TU Graz: MSc Computer Science, Machine Learning or Intelligent Systems
@@ -152,22 +208,27 @@ PRIORITY (search and rank in this order)
      https://www.jku.at/en/degree-programs/types-of-degree-programs/masters-degree-programs/ma-artificial-intelligence
      Non-EU winter intake: typically 6 February to 31 March.
 2. SECOND, other Austria GenAI / LLM / AI-engineering Master's in calm
-   cities: Graz, Linz, Innsbruck, Klagenfurt. Skip Vienna (too crowded)
-   unless nothing else opened and it still matches every other filter.
-   Prefer four-season climate (not extreme Nordic cold). English-taught
-   is OK; note that jobs and PR in Austria need German.
-3. THIRD, only if nothing in (1) or (2) opened today: other EU countries
-   that still pass every filter (GenAI course, open today, safe, rent,
-   part-time work, not overcrowded). Same exclude list still applies.
+   cities with a real local IT cluster: Graz, Linz, Innsbruck, Klagenfurt.
+   Skip Vienna (too crowded) unless nothing else is open and it still
+   passes every other filter. Prefer four-season climate (not extreme
+   Nordic cold). English-taught is OK; note that jobs and PR in Austria
+   need German.
+3. THIRD, other EU cities that pass the settle test better than Austria
+   if Austria's junior IT cluster is thin: same exclude list, same
+   GenAI course rule, applications open now. Do not pad.
 
-Do not pad. If the priority universities did not open today, returning
-zero programs is correct. Do not fill the email with random EU schools.
+Do not fill the email with random EU schools. Only the best apply-now
+fits that pass course + settle + money.
 
 PREFER THESE KINDS OF PLACES
-- Peaceful mid-size student cities near nature. Graz-style living is the
-  dream: safe, not too hot, not Arctic-cold, house later in suburbs.
-- After Austria, same style in EU: Braga/Coimbra (Portugal), Ljubljana,
-  Brno, Padova/Trento, smaller France (Toulouse, Grenoble, Nantes).
+- Peaceful mid-size cities with a Kathmandu-style IT cluster: many local
+  companies, not a tourist-first town, not a mega-city crush.
+- Graz-style living is still the dream IF junior IT/AI hiring is real
+  there: safe, not too hot, not Arctic-cold, house later in suburbs.
+- After Austria, same style in EU only if the job-density test passes:
+  Braga/Coimbra (Portugal), Ljubljana, Brno, Padova/Trento, smaller
+  France (Toulouse, Grenoble, Nantes). Skip any of these if they are
+  Pokhara-style (nice, weak IT hiring).
 - Average / applied universities (FH) are welcome. Elite branding is not.
 
 ADMISSION REALITY FILTER
@@ -179,22 +240,27 @@ FOR EACH PROGRAM INCLUDE
 - 3-6 official module names proving GenAI / agents / AI engineering
 - Full working https official URL
 - Application status: opened on [date], deadline, intake term (verified)
+- Why this city is settle-ready: company-count range, population /
+  competition note, Kathmandu-style vs Pokhara-style
 - City vibe, REAL student-room rent (not brochure), part-time job reality
   (hours + whether jobs actually exist + typical hourly pay)
 - Real safety note (night walking, student reports, not a ranking table)
-- After-degree job reality and typical junior pay for internationals
-- Tuition + hidden extras, realistic scholarships
+- After-degree junior hiring in THAT city and typical junior pay
+- Tuition + hidden extras: scholarship / low-fee / decent self-pay and
+  why the fee is worth it (or not)
 - 3-year BCA eligibility, language test
 - Why it is achievable; honest downsides
 
 SEARCH RULES
 - Ignore previously-seen program IDs.
 - If a fact is unsure, write "unverified" or skip the program.
-- Never invent deadlines, rent, or URLs.
-- Rank by: (1) application actually opened today, (2) priority list
-  (FH JOANNEUM Graz, then TU Graz, then JKU Linz, then other Austria,
-  then other EU), (3) GenAI/agent/AI-engineer curriculum, (4) working
-  official URL, (5) real safety / rent / jobs, (6) visa practicality.
+- Never invent deadlines, rent, company counts, or URLs.
+- Never use "big companies exist here" as the job argument.
+- Rank by: (1) settle test (company count vs population, junior hiring),
+  (2) applications open now or within 14 days, (3) GenAI/agent curriculum,
+  (4) working official URL, (5) real safety / rent / part-time work,
+  (6) scholarship or decent settle-worthy fee, (7) visa practicality,
+  (8) Austria watch-list only if it still passes settle.
 
 PROGRAM ID FORMAT
 - lowercase: country|university-slug|program-slug|intake-term-year
@@ -210,24 +276,30 @@ Return ONLY valid JSON (no markdown fences, no commentary):
   "discovered_programs": [
     {
       "id": "at|fh-joanneum-graz|ml-generative-ai|winter-2027",
-      "application_opened_on": "YYYY-MM-DD"
+      "application_opened_on": "YYYY-MM-DD",
+      "application_deadline": "YYYY-MM-DD"
     }
   ],
   "html_report": string
 }
 
-- new_opportunities_found: true only if at least one program opened today
-  AND passes every filter. Otherwise false.
-- application_opened_on: the official apply-start date (must be today or
-  yesterday). If you cannot verify that date, omit the program.
+- new_opportunities_found: true only if at least one program is open
+  (or opens within 14 days), passes every filter including the settle
+  test, and is not already in the seen list. Otherwise false.
+- application_opened_on: official apply-start date if known.
+- application_deadline: official deadline (must be today or later).
+  If you cannot verify the deadline, omit the program.
 - html_report: email-safe HTML (inline CSS). Practical work/study/live tone.
-  Each card must show: modules, "applications opened today", deadline,
-  full clickable https link, real rent, real part-time work, real safety,
-  after-master pay. Dark-on-light, mobile readable.
+  Each card must show: modules, apply window + deadline, full clickable
+  https link, company-count vs population, why it is not a tourist-campus
+  trap, real rent, real part-time work, real safety, after-master junior
+  hiring, fee type (scholarship / low / decent self-pay). Dark-on-light,
+  mobile readable.
 
-If nothing opened today, set new_opportunities_found to false,
-discovered_programs to [], and html_report to "".
-Better to return zero programs than a closed, old, or generic CS program.
+If nothing new and settle-ready is open, set new_opportunities_found to
+false, discovered_programs to [], and html_report to "".
+Better to return zero programs than a closed, tourist-city, mega-city,
+or generic CS program.
 """.strip()
 
 
@@ -328,12 +400,25 @@ def already_emailed(seen: list[dict[str, str]], course_key: str, intake: str) ->
     return False
 
 
-def opened_today_or_yesterday(opened_on: str, today: date) -> bool:
+def parse_iso_date(value: str) -> date | None:
     try:
-        opened = date.fromisoformat(opened_on.strip())
+        return date.fromisoformat(value.strip()[:10])
     except ValueError:
+        return None
+
+
+def opened_today_or_yesterday(opened_on: str, today: date) -> bool:
+    opened = parse_iso_date(opened_on)
+    if opened is None:
         return False
     return opened in {today, today - timedelta(days=1)}
+
+
+def applications_still_open(opened_on: str, deadline: str, today: date) -> bool:
+    due = parse_iso_date(deadline)
+    if due is not None:
+        return due >= today
+    return opened_today_or_yesterday(opened_on, today)
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -378,23 +463,33 @@ def build_user_prompt(seen_records: list[dict[str, str]]) -> str:
     seen_json = json.dumps(seen_records, indent=2)
     return (
         f"Today's date: {today}. Treat this date as ground truth.\n\n"
-        "This is a daily check, not a daily newsletter. Most days return "
-        "ZERO programs. Only include a course if its official application "
-        "window opened TODAY (or yesterday, timezone catch-up) AND it matches "
-        "every requirement. Do not pad 3-4 universities. No limit: 0 to many.\n\n"
+        "This is a daily check for the BEST university + city to apply to, "
+        "not a daily newsletter. Most days return ZERO programs. Only include "
+        "a course if applications are open now (or open within 14 days), the "
+        "deadline is today or later, the course is real GenAI, AND the city "
+        "passes the settle test. Do not pad 3-4 universities. No limit: 0 to many.\n\n"
+        "SETTLE TEST: copy Kathmandu (many IT companies, junior can land a "
+        "job), reject Pokhara (nice colleges, tourist city, thin IT hiring). "
+        "Use company COUNT vs POPULATION. Do not recommend because Google, "
+        "IBM, or another big brand has an office. Reject Bengaluru-style "
+        "mega cities where company count is high but competition is brutal.\n\n"
+        "MONEY: prefer scholarship or low fee. A decent self-paid fee is OK "
+        "only if the city is settle-ready.\n\n"
         "Check FIRST: FH JOANNEUM Graz (Machine Learning and Generative AI), "
         "TU Graz Computer Science (ML / Intelligent Systems major), and "
-        "JKU Linz MSc Artificial Intelligence. SECOND: other Austria in Graz, "
-        "Linz, Innsbruck, Klagenfurt (skip Vienna). THIRD: other EU only if "
-        "nothing in Austria opened today. Do not pad with random universities.\n\n"
+        "JKU Linz MSc Artificial Intelligence, but only if they still pass "
+        "the settle test. SECOND: other Austria in Graz, Linz, Innsbruck, "
+        "Klagenfurt (skip Vienna). THIRD: other EU cities that pass settle "
+        "better. Do not pad with random universities.\n\n"
         "Find Master's programs focused on Generative AI, LLMs, AI agents, or "
         "AI engineering (not generic CS, not classical ML, not coding-only, "
         "except the TU Graz CS+ML major above). "
         "Every Official Link must be a full https URL that search shows as a "
-        "live university page. Peaceful smaller cities that are actually safe "
-        "to live in, not only safe on paper. Use ground-reality rent, tuition, "
-        "part-time jobs, and after-master income, not brochure numbers. Skip "
-        "USA, Canada, Australia, UK, and Germany. Skip elite schools.\n\n"
+        "live university page. Peaceful mid-size cities that are actually "
+        "safe and have a real junior IT/AI cluster. Use ground-reality rent, "
+        "tuition, company counts, population, part-time jobs, and after-master "
+        "hiring, not brochure numbers. Skip USA, Canada, Australia, UK, and "
+        "Germany. Skip elite schools and tourist-campus towns.\n\n"
         "ALREADY EMAILED (do not send the same university+course again unless "
         "the intake is new):\n"
         f"{seen_json}\n\n"
@@ -522,19 +617,38 @@ def _iter_discovered(payload: dict[str, Any]) -> list[dict[str, str]]:
     if isinstance(programs, list):
         for item in programs:
             if isinstance(item, str) and item.strip():
-                parsed.append({"id": item.strip(), "application_opened_on": ""})
+                parsed.append(
+                    {
+                        "id": item.strip(),
+                        "application_opened_on": "",
+                        "application_deadline": "",
+                    }
+                )
             elif isinstance(item, dict):
                 program_id = str(item.get("id") or "").strip()
                 opened_on = str(item.get("application_opened_on") or "").strip()
+                deadline = str(item.get("application_deadline") or "").strip()
                 if program_id:
-                    parsed.append({"id": program_id, "application_opened_on": opened_on})
+                    parsed.append(
+                        {
+                            "id": program_id,
+                            "application_opened_on": opened_on,
+                            "application_deadline": deadline,
+                        }
+                    )
         return parsed
 
     raw_ids = payload.get("discovered_program_ids") or []
     if isinstance(raw_ids, list):
         for item in raw_ids:
             if isinstance(item, str) and item.strip():
-                parsed.append({"id": item.strip(), "application_opened_on": ""})
+                parsed.append(
+                    {
+                        "id": item.strip(),
+                        "application_opened_on": "",
+                        "application_deadline": "",
+                    }
+                )
     return parsed
 
 
@@ -550,10 +664,12 @@ def normalize_result(
     for item in _iter_discovered(payload):
         program_id = item["id"]
         opened_on = item.get("application_opened_on") or ""
-        if not opened_today_or_yesterday(opened_on, today):
+        deadline = item.get("application_deadline") or ""
+        if not applications_still_open(opened_on, deadline, today):
             logger.info(
-                "Skipping %s: application_opened_on=%r is not today/yesterday.",
+                "Skipping %s: deadline=%r opened_on=%r is not an open window.",
                 program_id,
+                deadline or "missing",
                 opened_on or "missing",
             )
             continue
@@ -576,6 +692,7 @@ def normalize_result(
                 "course_key": course_key,
                 "intake": intake,
                 "application_opened_on": opened_on,
+                "application_deadline": deadline,
             }
         )
 
@@ -599,7 +716,7 @@ def send_html_email(html_body: str, program_count: int) -> None:
     sender = os.environ["GMAIL_SENDER_EMAIL"].strip()
     app_password = os.environ["GMAIL_APP_PASSWORD"].replace(" ", "")
     subject = (
-        f"GradScout: admissions opened today "
+        f"GradScout: settle-ready apply options "
         f"({program_count} matching course{'s' if program_count != 1 else ''})"
     )
 
@@ -638,12 +755,12 @@ def main() -> int:
 
     if not result["new_opportunities_found"]:
         logger.info(
-            "No matching courses opened today. Exiting without sending email."
+            "No new settle-ready courses are open. Exiting without sending email."
         )
         return 0
 
     new_ids = [record["id"] for record in new_records]
-    logger.info("Admissions opened today for %d course(s): %s", len(new_ids), ", ".join(new_ids))
+    logger.info("Settle-ready apply options for %d course(s): %s", len(new_ids), ", ".join(new_ids))
     save_seen_programs(seen_records + new_records)
 
     try:
