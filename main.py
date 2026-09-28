@@ -9,6 +9,7 @@ import os
 import smtplib
 import ssl
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -27,6 +28,9 @@ MODEL_FALLBACKS = (
     "gemini-3.6-flash",
     "gemini-3.1-flash-lite",
 )
+MAX_OUTPUT_TOKENS = 8192
+RETRY_WAITS_SECONDS = (20, 45, 90)
+RETRYABLE_CODES = {429, 500, 503}
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 RECIPIENTS = [
@@ -498,9 +502,29 @@ def build_user_prompt(seen_records: list[dict[str, str]]) -> str:
 
 
 def _error_code(exc: BaseException) -> int | None:
-    if isinstance(exc, genai_errors.ClientError):
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code
+    if isinstance(exc, (genai_errors.ClientError, genai_errors.ServerError)):
         return exc.code
     return None
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    code = _error_code(exc)
+    if code in RETRYABLE_CODES:
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "unavailable",
+            "high demand",
+            "resource_exhausted",
+            "too many requests",
+            "try again later",
+        )
+    )
 
 
 def _generate(
@@ -514,6 +538,7 @@ def _generate(
     config_kwargs: dict[str, Any] = {
         "system_instruction": SYSTEM_PROMPT,
         "temperature": 0.2,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
     }
     if use_search:
         config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
@@ -537,7 +562,7 @@ def _generate_with_json_fallback(
         return _generate(client, model, contents, json_mode=True, use_search=use_search)
     except Exception as json_mode_error:
         code = _error_code(json_mode_error)
-        if code in {404, 429}:
+        if code in RETRYABLE_CODES | {404} or _is_retryable(json_mode_error):
             raise
         logger.warning(
             "JSON mime type failed on %s (%s). Retrying without mime type.",
@@ -545,6 +570,44 @@ def _generate_with_json_fallback(
             json_mode_error,
         )
         return _generate(client, model, contents, json_mode=False, use_search=use_search)
+
+
+def _generate_with_retries(
+    client: genai.Client,
+    model: str,
+    contents: str,
+    *,
+    use_search: bool,
+) -> Any:
+    last_error: Exception | None = None
+    attempts = (0,) + RETRY_WAITS_SECONDS
+    for attempt, wait in enumerate(attempts, start=1):
+        if wait:
+            logger.info(
+                "Waiting %ds before retry %d/%d on %s...",
+                wait,
+                attempt,
+                len(attempts),
+                model,
+            )
+            time.sleep(wait)
+        try:
+            return _generate_with_json_fallback(
+                client, model, contents, use_search=use_search
+            )
+        except Exception as exc:
+            last_error = exc
+            if not _is_retryable(exc):
+                raise
+            logger.warning(
+                "Attempt %d/%d failed on %s (%s).",
+                attempt,
+                len(attempts),
+                model,
+                exc,
+            )
+    assert last_error is not None
+    raise last_error
 
 
 def research_programs(client: genai.Client, seen_records: list[dict[str, str]]) -> dict[str, Any]:
@@ -556,42 +619,40 @@ def research_programs(client: genai.Client, seen_records: list[dict[str, str]]) 
     response = None
     quota_hit = False
 
-    for model in models_to_try:
-        try:
-            logger.info("Querying %s with Google Search grounding...", model)
-            response = _generate_with_json_fallback(
-                client, model, contents, use_search=True
-            )
-            break
-        except Exception as model_error:
-            last_error = model_error
-            code = _error_code(model_error)
-            if code == 429:
-                quota_hit = True
-                logger.warning(
-                    "Quota exceeded on %s (often Google Search grounding on the free plan). "
-                    "Retrying once without live web search.",
-                    model,
+    for use_search in (True, False):
+        mode = "Google Search grounding" if use_search else "model knowledge only"
+        for model in models_to_try:
+            try:
+                logger.info("Querying %s with %s...", model, mode)
+                response = _generate_with_retries(
+                    client, model, contents, use_search=use_search
                 )
                 break
-            logger.warning("Model %s failed (%s). Trying the next candidate.", model, model_error)
-    else:
-        raise RuntimeError("All Gemini model candidates failed.") from last_error
+            except Exception as model_error:
+                last_error = model_error
+                code = _error_code(model_error)
+                if code == 429:
+                    quota_hit = True
+                logger.warning(
+                    "Model %s failed with %s (%s). Trying the next option.",
+                    model,
+                    mode,
+                    model_error,
+                )
+        if response is not None:
+            break
 
     if response is None:
-        logger.info("Querying %s without Google Search (model knowledge only)...", MODEL_NAME)
-        try:
-            response = _generate_with_json_fallback(
-                client, MODEL_NAME, contents, use_search=False
-            )
-        except Exception as fallback_error:
-            if quota_hit:
-                raise RuntimeError(
-                    "Gemini quota is exhausted (often the Google Search grounding limit "
-                    "on the free plan). Wait a few minutes, check "
-                    "https://ai.dev/rate-limit, or enable billing in Google AI Studio."
-                ) from fallback_error
-            raise RuntimeError("Gemini research call failed.") from fallback_error
+        if quota_hit:
+            raise RuntimeError(
+                "Gemini quota is exhausted (often the Google Search grounding limit "
+                "on the free plan). Wait a few minutes, check "
+                "https://ai.dev/rate-limit, or enable billing in Google AI Studio."
+            ) from last_error
+        raise RuntimeError(
+            "Gemini research call failed after retries. The model was overloaded "
+            "or unavailable. Run the workflow again later."
+        ) from last_error
 
     raw_text = (response.text or "").strip()
     LAST_REPLY_PATH.write_text(raw_text + "\n", encoding="utf-8")
