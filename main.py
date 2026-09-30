@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import smtplib
 import ssl
 import sys
@@ -28,9 +29,10 @@ MODEL_FALLBACKS = (
     "gemini-3.6-flash",
     "gemini-3.1-flash-lite",
 )
-MAX_OUTPUT_TOKENS = 8192
+MAX_OUTPUT_TOKENS = 24576
+THINKING_BUDGET = 1024
 RETRY_WAITS_SECONDS = (20, 45, 90)
-RETRYABLE_CODES = {429, 500, 503}
+RETRYABLE_CODES = {500, 503}
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 RECIPIENTS = [
@@ -425,8 +427,110 @@ def applications_still_open(opened_on: str, deadline: str, today: date) -> bool:
     return opened_today_or_yesterday(opened_on, today)
 
 
+def _is_result_payload(candidate: dict[str, Any]) -> bool:
+    return "new_opportunities_found" in candidate and (
+        "discovered_programs" in candidate
+        or "discovered_program_ids" in candidate
+        or "html_report" in candidate
+    )
+
+
+def _minimal_html(programs: list[dict[str, Any]]) -> str:
+    if not programs:
+        return ""
+    cards: list[str] = []
+    for program in programs:
+        program_id = str(program.get("id") or "").strip()
+        deadline = str(program.get("application_deadline") or "").strip()
+        opened = str(program.get("application_opened_on") or "").strip()
+        cards.append(
+            "<div style='background:#fff;border:1px solid #e2e8f0;border-radius:8px;"
+            "padding:16px;margin:0 0 16px 0;'>"
+            f"<p style='margin:0 0 8px 0;'><strong>{program_id}</strong></p>"
+            f"<p style='margin:0;'>Opened: {opened or 'unverified'} | "
+            f"Deadline: {deadline or 'unverified'}</p>"
+            "</div>"
+        )
+    return (
+        "<div style='font-family:Helvetica,Arial,sans-serif;max-width:700px;"
+        "margin:0 auto;padding:20px;color:#2d3748;background:#f7fafc;'>"
+        "<h2 style='color:#1a365d;'>Settle-ready apply options</h2>"
+        + "".join(cards)
+        + "</div>"
+    )
+
+
+def _extract_json_string(text: str, quote_index: int) -> str:
+    chars: list[str] = []
+    index = quote_index + 1
+    escapes = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "/": "/"}
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            if index + 1 >= len(text):
+                break
+            chars.append(escapes.get(text[index + 1], text[index + 1]))
+            index += 2
+            continue
+        if char == '"':
+            break
+        chars.append(char)
+        index += 1
+    return "".join(chars)
+
+
+def _parse_program_array(text: str) -> list[dict[str, Any]]:
+    match = re.search(r'"discovered_programs"\s*:\s*\[', text)
+    if not match:
+        return []
+    decoder = json.JSONDecoder()
+    index = text.find("[", match.start()) + 1
+    programs: list[dict[str, Any]] = []
+    while index < len(text):
+        while index < len(text) and text[index] in " \n\r\t,":
+            index += 1
+        if index >= len(text) or text[index] == "]":
+            break
+        if text[index] != "{":
+            break
+        try:
+            parsed, offset = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            break
+        if isinstance(parsed, dict):
+            programs.append(parsed)
+        index += max(offset, 1)
+    return programs
+
+
+def _salvage_truncated_payload(text: str) -> dict[str, Any] | None:
+    found_match = re.search(
+        r'"new_opportunities_found"\s*:\s*(true|false)', text, flags=re.I
+    )
+    if not found_match:
+        return None
+
+    found = found_match.group(1).lower() == "true"
+    programs = _parse_program_array(text)
+    html = ""
+    html_match = re.search(r'"html_report"\s*:\s*"', text)
+    if html_match:
+        html = _extract_json_string(text, html_match.end() - 1).strip()
+    if found and not html:
+        html = _minimal_html(programs)
+    logger.warning(
+        "Gemini JSON was truncated or invalid. Salvaged %d program(s).",
+        len(programs),
+    )
+    return {
+        "new_opportunities_found": found,
+        "discovered_programs": programs,
+        "html_report": html,
+    }
+
+
 def extract_json_object(text: str) -> dict[str, Any]:
-    """Parse a JSON object from model output, including fenced or noisy text."""
+    """Parse a JSON object from model output, including fenced or truncated text."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.removeprefix("```json").removeprefix("```JSON").removeprefix("```")
@@ -448,18 +552,23 @@ def extract_json_object(text: str) -> dict[str, Any]:
             candidates.append(parsed)
         index = brace + max(offset, 1)
 
+    for candidate in candidates:
+        if _is_result_payload(candidate):
+            return candidate
+
+    salvaged = _salvage_truncated_payload(cleaned)
+    if salvaged is not None:
+        return salvaged
+
     if not candidates:
         snippet = cleaned[:200].replace("\n", " ")
         raise ValueError(f"Model response did not contain a JSON object. Start: {snippet!r}")
 
-    for candidate in candidates:
-        if "new_opportunities_found" in candidate and (
-            "discovered_programs" in candidate
-            or "discovered_program_ids" in candidate
-            or "html_report" in candidate
-        ):
-            return candidate
-    return candidates[0]
+    keys = list(candidates[0].keys())
+    raise ValueError(
+        "Model JSON is missing 'new_opportunities_found'. "
+        f"Parsed object keys: {keys}"
+    )
 
 
 def build_user_prompt(seen_records: list[dict[str, str]]) -> str:
@@ -512,7 +621,7 @@ def _error_code(exc: BaseException) -> int | None:
 
 def _is_retryable(exc: BaseException) -> bool:
     code = _error_code(exc)
-    if code in RETRYABLE_CODES:
+    if code in RETRYABLE_CODES | {429}:
         return True
     message = str(exc).lower()
     return any(
@@ -540,6 +649,9 @@ def _generate(
         "temperature": 0.2,
         "max_output_tokens": MAX_OUTPUT_TOKENS,
     }
+    thinking_cls = getattr(types, "ThinkingConfig", None)
+    if thinking_cls is not None and "lite" not in model:
+        config_kwargs["thinking_config"] = thinking_cls(thinking_budget=THINKING_BUDGET)
     if use_search:
         config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
     if json_mode:
@@ -562,7 +674,7 @@ def _generate_with_json_fallback(
         return _generate(client, model, contents, json_mode=True, use_search=use_search)
     except Exception as json_mode_error:
         code = _error_code(json_mode_error)
-        if code in RETRYABLE_CODES | {404} or _is_retryable(json_mode_error):
+        if code in RETRYABLE_CODES | {404, 429} or _is_retryable(json_mode_error):
             raise
         logger.warning(
             "JSON mime type failed on %s (%s). Retrying without mime type.",
@@ -597,6 +709,12 @@ def _generate_with_retries(
             )
         except Exception as exc:
             last_error = exc
+            if _error_code(exc) == 429:
+                logger.warning(
+                    "Quota hit on %s. Skipping extra waits and trying the next option.",
+                    model,
+                )
+                raise
             if not _is_retryable(exc):
                 raise
             logger.warning(
@@ -618,8 +736,11 @@ def research_programs(client: genai.Client, seen_records: list[dict[str, str]]) 
     last_error: Exception | None = None
     response = None
     quota_hit = False
+    search_quota = False
 
     for use_search in (True, False):
+        if use_search and search_quota:
+            continue
         mode = "Google Search grounding" if use_search else "model knowledge only"
         for model in models_to_try:
             try:
@@ -633,6 +754,13 @@ def research_programs(client: genai.Client, seen_records: list[dict[str, str]]) 
                 code = _error_code(model_error)
                 if code == 429:
                     quota_hit = True
+                    if use_search:
+                        search_quota = True
+                        logger.warning(
+                            "Search quota exhausted on %s. Switching to model knowledge only.",
+                            model,
+                        )
+                        break
                 logger.warning(
                     "Model %s failed with %s (%s). Trying the next option.",
                     model,
@@ -663,12 +791,19 @@ def research_programs(client: genai.Client, seen_records: list[dict[str, str]]) 
         raise RuntimeError("Gemini returned an empty response.")
 
     payload = extract_json_object(raw_text)
-    if "new_opportunities_found" not in payload:
-        raise ValueError("Model JSON is missing 'new_opportunities_found'.")
     if "html_report" not in payload:
-        raise ValueError("Model JSON is missing 'html_report'.")
+        payload["html_report"] = _minimal_html(
+            payload.get("discovered_programs")
+            if isinstance(payload.get("discovered_programs"), list)
+            else []
+        )
     if "discovered_programs" not in payload and "discovered_program_ids" not in payload:
-        raise ValueError("Model JSON is missing 'discovered_programs'.")
+        payload["discovered_programs"] = []
+    if "new_opportunities_found" not in payload:
+        raise ValueError(
+            "Model JSON is missing 'new_opportunities_found'. "
+            f"Parsed keys: {list(payload.keys())}"
+        )
     return payload
 
 
